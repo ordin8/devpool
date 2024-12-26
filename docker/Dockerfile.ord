@@ -1,0 +1,28 @@
+FROM rust:1.83-slim-bookworm as builder
+
+COPY config/custom-apt.conf /etc/apt/apt.conf.d/custom-apt.conf
+
+RUN apt-get update && apt-get install -y \
+    git \
+    pkg-config \
+    build-essential \
+    libtool \
+    autoconf \
+    libssl-dev \
+    openssh-server
+
+RUN git clone https://github.com/ordinals/ord.git
+
+WORKDIR /ord
+
+RUN cargo build --release
+
+FROM debian:bookworm-slim
+
+COPY --from=builder /ord/target/release/ord /usr/local/bin/
+
+RUN apt-get update && apt-get install -y \
+    ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+ENTRYPOINT ["ord"]

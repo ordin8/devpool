@@ -1,0 +1,121 @@
+name: devpool
+
+services:
+  bitcoin:
+    image: getumbrel/bitcoind:v28.0
+    container_name: bitcoin
+    restart: on-failure
+    stop_grace_period: 30s
+    ports:
+      - 18443:18443
+      - 18444:18444
+    volumes:
+      - ./volumes/bitcoin:/data/.bitcoin
+      - ./config/bitcoin.conf:/data/.bitcoin/bitcoin.conf
+
+  ord:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.ord
+    container_name: ord
+    restart: on-failure
+    ports:
+      - 80:80
+    volumes:
+      - ./volumes/ord:/root/.ord
+    environment:
+      ORD_BITCOIN_RPC_USERNAME: "devpool"
+      ORD_BITCOIN_RPC_PASSWORD: "devpassword"
+      ORD_BITCOIN_RPC_URL: "http://bitcoin:18443"
+      ORD_CHAIN: "regtest"
+      ORD_INDEX_SATS: "true"
+      ORD_INDEX_TRANSACTIONS: "true"
+    command: >
+      server
+      --http-port 80
+      --address 0.0.0.0
+    depends_on:
+      - bitcoin
+
+  electrs:
+    image: mempool/electrs:latest
+    container_name: electrs
+    restart: on-failure
+    ports:
+      - 50001:50001
+      - 3002:3002
+    volumes:
+      - ./volumes/bitcoin:/data/.bitcoin:ro
+    command: >
+      --network=regtest
+      --daemon-dir=/data/.bitcoin
+      --daemon-rpc-addr=bitcoin:18443
+      --electrum-rpc-addr=0.0.0.0:50001
+      --http-addr=0.0.0.0:3002
+      --db-dir=/data/db
+      --cookie=devpool:devpassword
+      --jsonrpc-import
+      --timestamp
+      -vvvv
+    environment:
+      - RUST_BACKTRACE=1
+    depends_on:
+      - bitcoin
+
+  mariadb:
+    image: mariadb:10.11
+    container_name: mariadb
+    restart: on-failure
+    environment:
+      MYSQL_ROOT_PASSWORD: mempool
+      MYSQL_DATABASE: mempool
+      MYSQL_USER: mempool
+      MYSQL_PASSWORD: mempool
+    volumes:
+      - ./volumes/mysql:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "mempool", "-pmempool"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  mempool-api:
+    image: mempool/backend:latest
+    container_name: mempool-api
+    restart: on-failure
+    ports:
+      - 8999:8999
+    environment:
+      MEMPOOL_BACKEND: "electrum"
+      CORE_RPC_HOST: "bitcoin"
+      CORE_RPC_PORT: "18443"
+      CORE_RPC_USERNAME: "devpool"
+      CORE_RPC_PASSWORD: "devpassword"
+      ELECTRUM_HOST: "electrs"
+      ELECTRUM_PORT: "50001"
+      ELECTRUM_TLS_ENABLED: "false"
+      NETWORK: "regtest"
+      DATABASE_HOST: "mariadb"
+      DATABASE_DATABASE: "mempool"
+      DATABASE_USERNAME: "mempool"
+      DATABASE_PASSWORD: "mempool"
+    depends_on:
+      mariadb:
+        condition: service_healthy
+      bitcoin:
+        condition: service_started
+      electrs:
+        condition: service_started
+
+  mempool:
+    image: mempool/frontend:latest
+    container_name: mempool
+    restart: on-failure
+    ports:
+      - 8080:8080
+    environment:
+      FRONTEND_HTTP_PORT: "8080"
+      BACKEND_MAINNET_HTTP_HOST: "mempool-api"
+      BACKEND_MAINNET_HTTP_PORT: "8999"
+    depends_on:
+      - mempool-api

@@ -1,0 +1,74 @@
+#!/usr/bin/env bash
+
+set -e
+
+COMPOSE="docker compose"
+
+GREEN='\033[0;32m'
+NO_COLOR='\033[0m'
+BOLD='\033[1m'
+
+show_help() {
+    echo "Usage: devpool COMMAND [OPTIONS]"
+    echo ""
+    echo "Commands:"
+    echo "  start         Start all services"
+    echo "  stop          Stop all services"
+    echo "  restart       Restart all services"
+    echo "  logs [svc]    Show logs of all or specific service"
+    echo "  ord           Run ord commands inside the ord container"
+    echo "  bitcoin-cli   Run bitcoin-cli commands"
+    echo ""
+    echo "Examples:"
+    echo "  devpool start"
+    echo "  devpool ord wallet receive"
+    echo "  devpool bitcoin-cli -getinfo"
+}
+
+# Show service URLs
+show_services() {
+    echo -e "\n${BOLD}🚀 DevPool Services:${NO_COLOR}"
+    echo -e "${GREEN}├─ Mempool Explorer:${NO_COLOR}    http://localhost:8080"
+    echo -e "${GREEN}├─ Mempool API:${NO_COLOR}         http://localhost:8999"
+    echo -e "${GREEN}├─ Ord Interface:${NO_COLOR}       http://localhost:80"
+    echo -e "${GREEN}├─ Bitcoin RPC:${NO_COLOR}         http://localhost:18443"
+    echo -e "${GREEN}└─ Electrs RPC:${NO_COLOR}         http://localhost:50001"
+    echo -e "\n${BOLD}💡 Quick Start:${NO_COLOR}"
+    echo -e "  devpool bitcoin-cli getblockchaininfo"
+    echo -e "  devpool ord wallet create\n"
+}
+
+# Main command handler
+case "$1" in
+    start)
+        $COMPOSE up --build -d
+        show_services
+        ;;
+    stop)
+        $COMPOSE down
+        ;;
+    restart)
+        $COMPOSE down
+        $COMPOSE up --build -d
+        show_services
+        ;;
+    logs)
+        if [ -z "$2" ]; then
+            $COMPOSE logs -f
+        else
+            $COMPOSE logs -f "$2"
+        fi
+        ;;
+    ord)
+        shift
+        docker exec -it ord ord "$@"
+        ;;
+    bitcoin-cli)
+        shift
+        docker exec -it bitcoin bitcoin-cli -rpcuser=devpool -rpcpassword=devpassword "$@"
+        ;;
+    *)
+        show_help
+        exit 1
+        ;;
+esac
